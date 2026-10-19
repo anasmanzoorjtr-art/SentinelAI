@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 from datetime import datetime, timezone
+from modules.ai_engine import detect_anomalies
 
 st.set_page_config(
     page_title="SentinelAI | Intelligence Platform",
@@ -114,7 +115,7 @@ if page == "Overview":
             title="Requests per 10 Minutes",
         )
         fig.update_layout(template="plotly_dark")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     with right:
         st.subheader("Event Distribution")
@@ -128,10 +129,10 @@ if page == "Overview":
             title="Sample Event Status",
         )
         fig.update_layout(template="plotly_dark")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     st.subheader("Recent Events")
-    st.dataframe(events.tail(10), use_container_width=True)
+    st.dataframe(events.tail(10), width="stretch")
 
 elif page == "Data Explorer":
     st.subheader("Data Explorer")
@@ -150,18 +151,15 @@ elif page == "Data Explorer":
                 a, b, c = st.columns(3)
                 a.metric("Rows Loaded", len(data))
                 b.metric("Columns", len(data.columns))
-                c.metric(
-                    "Missing Cells",
-                    int(data.isna().sum().sum()),
-                )
+                c.metric("Missing Cells", int(data.isna().sum().sum()))
 
                 st.subheader("Data Preview")
-                st.dataframe(data.head(100), use_container_width=True)
+                st.dataframe(data.head(100), width="stretch")
 
                 st.subheader("Column Summary")
                 st.dataframe(
                     data.describe(include="all").transpose(),
-                    use_container_width=True,
+                    width="stretch",
                 )
 
                 numeric = data.select_dtypes(include="number").columns.tolist()
@@ -176,7 +174,7 @@ elif page == "Data Explorer":
                         title=f"Distribution of {selected}",
                     )
                     fig.update_layout(template="plotly_dark")
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
 
         except (ValueError, UnicodeDecodeError, pd.errors.ParserError):
             st.error("Unable to read this CSV. Check its format and encoding.")
@@ -184,12 +182,10 @@ elif page == "Data Explorer":
 elif page == "AI Anomaly Detection":
     st.subheader("AI Anomaly Detection")
     st.write(
-        "Isolation Forest identifies unusual numerical records in the "
-        "sample event dataset. Results are model-generated indicators, "
-        "not proof of a cyberattack."
+        "Isolation Forest identifies unusual numerical records. "
+        "Feature explanations describe unusual values; they do not "
+        "prove that an event is malicious."
     )
-
-    from sklearn.ensemble import IsolationForest
 
     events = st.session_state.events.copy()
     features = ["requests", "response_ms", "risk_score"]
@@ -203,28 +199,38 @@ elif page == "AI Anomaly Detection":
     )
 
     if st.button("Run anomaly detection", type="primary"):
-        model = IsolationForest(
-            n_estimators=150,
-            contamination=contamination,
-            random_state=42,
-        )
-        events["anomaly"] = model.fit_predict(events[features])
-        events["AI result"] = np.where(
-            events["anomaly"] == -1,
-            "Unusual",
-            "Typical",
-        )
+        try:
+            results = detect_anomalies(
+                data=events,
+                features=features,
+                contamination=contamination,
+            )
 
-        unusual = events[events["anomaly"] == -1]
-        st.metric("Unusual Records Detected", len(unusual))
-        st.dataframe(unusual, use_container_width=True)
+            unusual = results[results["anomaly_label"] == -1]
 
-        st.download_button(
-            "Download Analysis CSV",
-            data=events.to_csv(index=False).encode("utf-8"),
-            file_name="sentinelai_anomaly_results.csv",
-            mime="text/csv",
-        )
+            st.metric("Unusual Records Detected", len(unusual))
+
+            st.subheader("Unusual Records and Explanations")
+            st.dataframe(
+                unusual[
+                    features
+                    + ["anomaly_score", "AI result", "AI explanation"]
+                ],
+                width="stretch",
+            )
+
+            st.subheader("All Analysis Results")
+            st.dataframe(results, width="stretch")
+
+            st.download_button(
+                "Download Analysis CSV",
+                data=results.to_csv(index=False).encode("utf-8"),
+                file_name="sentinelai_anomaly_results.csv",
+                mime="text/csv",
+            )
+
+        except ValueError as error:
+            st.error(f"Anomaly detection could not run: {error}")
 
 elif page == "Security Center":
     st.subheader("Security Center")
@@ -247,7 +253,7 @@ elif page == "Security Center":
     )
 
     flagged = events[events["risk_score"] >= minimum_risk]
-    st.dataframe(flagged, use_container_width=True)
+    st.dataframe(flagged, width="stretch")
 
     st.download_button(
         "Export Risk Review",
@@ -265,8 +271,8 @@ elif page == "About":
 
         **Integrated disciplines**
         - Data Science: descriptive statistics and visual analytics.
-        - Artificial Intelligence: anomaly detection.
-        - Cybersecurity: risk review and safer file handling.
+        - Artificial Intelligence: anomaly detection and feature explanations.
+        - Cybersecurity: sample risk review and safer file handling.
         - Software Engineering: modular, testable application design.
         - Cloud Engineering: version control and deployment.
 
